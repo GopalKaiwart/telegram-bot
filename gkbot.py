@@ -1,36 +1,43 @@
+import os
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, ChatJoinRequestHandler
-import os
+from telegram.ext import (
+    ApplicationBuilder,
+    ContextTypes,
+    ChatJoinRequestHandler,
+)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g., https://your-render-url.onrender.com/webhook
 
-app = Flask(__name__)
+# Initialize Flask
+flask_app = Flask(__name__)
+
+# Initialize Telegram Bot App
 tg_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Approve join requests
+async def approve_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.chat_join_request.approve()
-    print(f"✅ Approved: {update.chat_join_request.from_user.username}")
+    print(f"Approved: {update.chat_join_request.from_user.username}")
 
-tg_app.add_handler(ChatJoinRequestHandler(approve))
+tg_app.add_handler(ChatJoinRequestHandler(approve_request))
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    return "Bot is running!"
-
-@app.route("/webhook", methods=["POST"])
+# Set up Telegram Webhook
+@flask_app.route("/webhook", methods=["POST"])
 async def webhook():
-    if request.method == "POST":
-        await tg_app.update_queue.put(Update.de_json(request.get_json(force=True), tg_app.bot))
-        return "ok"
+    data = request.get_json(force=True)
+    update = Update.de_json(data, tg_app.bot)
+    await tg_app.process_update(update)
+    return "OK", 200
 
-# Set webhook when app starts
-async def set_webhook():
-    await tg_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-
-import asyncio
-asyncio.run(set_webhook())
+# Set webhook when the server starts
+@flask_app.before_first_request
+def setup_webhook():
+    import telegram
+    bot = telegram.Bot(token=BOT_TOKEN)
+    bot.delete_webhook()
+    bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    flask_app.run(host="0.0.0.0", port=10000)
